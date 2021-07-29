@@ -16,80 +16,148 @@
 #include <frc/smartdashboard/SmartDashboard.h>
 #include <wpi/math>
 #include <frc/DutyCycleEncoder.h>
+#include "AHRS.h"
+#include <frc/controller/PIDController.h>
+#include <frc/smartdashboard/SendableChooser.h>
+#include <frc/DriverStation.h>
+#include "rev/CANSparkMax.h"
+#include "rev/CANSparkMaxLowLevel.h"
+#include <frc/Compressor.h>
+#include <frc/DoubleSolenoid.h>
+#include "cameraserver/CameraServer.h"
+
+
+const static double kP = 0.03f;
+const static double kI = 0.00f;
+const static double kD = 0.00f;
+const static double kF = 0.00f;
+
+const static double kToleranceDegrees = 2.0f;
+
 class Robot : public frc::TimedRobot
 {
 public:
   double rAccel = 0, lAccel = 0;
   double accel = -1;
+
   Robot()
   {
     m_robotDrive.SetExpiration(0.1);
     m_timer.Start();
     m_encoderLeft.SetDistancePerPulse(48.0 / 2048.0);
     m_encoderRight.SetDistancePerPulse(48.0 / 2048.0);
-   
+    try
+    {
+
+      ahrs = new AHRS(frc::SPI::Port::kMXP);
+    }
+    catch (std::exception &ex)
+    {
+      std::string what_string = ex.what();
+      std::string err_msg("Error instantiating navX MXP:  " + what_string);
+      const char *p_err_msg = err_msg.c_str();
+      frc::DriverStation::ReportError(p_err_msg);
+    }
+    compressor.Start();
+    target.Set(frc::DoubleSolenoid::kOff);
+    intakeDown.Set(frc::DoubleSolenoid::kOff);
+    frc::CameraServer::GetInstance()->StartAutomaticCapture();
+    frc::CameraServer::GetInstance()->SetSize(frc::CameraServer::kSize640x480);
   }
-  
 
   void AutonomousInit() override
   {
     m_timer.Reset();
     m_timer.Start();
-    m_robotDrive.TankDrive(accel,accel);
+    m_robotDrive.TankDrive(accel, accel);
     m_encoderLeft.Reset();
     m_encoderRight.Reset();
-    accel = -0.5;
   }
 
   void AutonomousPeriodic() override
   {
-     frc::SmartDashboard::PutNumber("Encoder Esquerda", m_encoderLeft.GetDistance());
-     frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
-     frc::SmartDashboard::PutNumber("Aceleração", accel);
+    frc::SmartDashboard::PutNumber("Encoder Esquerda", m_encoderLeft.GetDistance());
+    frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
+    frc::SmartDashboard::PutNumber("Aceleração esquerda", lAccel);
+    frc::SmartDashboard::PutNumber("Aceleração Direita", rAccel);
+    if (m_encoderLeft.GetDistance() > 590.0 || m_encoderRight.GetDistance() > 590.0)
+    {
 
-     if (m_encoderLeft.GetDistance()>590.0 || m_encoderRight.GetDistance()>590.0)
-     {
-       accel = 0;
-     }
-     else if (m_encoderLeft.GetDistance()>580.0 || m_encoderRight.GetDistance()>580.0)
-     {
-        accel = 0.25;
-     }
-     else if (m_encoderLeft.GetDistance()>500.0 || m_encoderRight.GetDistance()>500.0)
-     {
-        accel = -0.5;
-     }
-     else if (m_encoderLeft.GetDistance()>100.0 || m_encoderRight.GetDistance()>100.0)
-     {
-       accel = -1.0;
-     }
-     
-    
-     m_robotDrive.TankDrive(accel,accel);
+      m_encoderLeft.Reset();
+      m_encoderRight.Reset();
+      accel = -0.5;
+    }
+    else if (m_encoderLeft.GetDistance() > 580.0 || m_encoderRight.GetDistance() > 580.0)
+    {
+      accel = 0;
+    }
+    else if (m_encoderLeft.GetDistance() > 400.0 || m_encoderRight.GetDistance() > 400.0)
+    {
+      accel = 0.5;
+    }
+    else if (m_encoderLeft.GetDistance() > 50.0 || m_encoderRight.GetDistance() > 50.0)
+    {
+      accel = 1.0;
+    }
 
+    if (m_encoderLeft.GetDistance() < -590.0 || m_encoderRight.GetDistance() < -590.0)
+    {
+      accel = 0;
+    }
+    else if (m_encoderLeft.GetDistance() < -580.0 || m_encoderRight.GetDistance() < -580.0)
+    {
+      accel = 0.25;
+    }
+    else if (m_encoderLeft.GetDistance() < -400.0 || m_encoderRight.GetDistance() < -400.0)
+    {
+      accel = -0.5;
+    }
+    else if (m_encoderLeft.GetDistance() < -50.0 || m_encoderRight.GetDistance() < -50.0)
+    {
+      accel = -1.0;
+    }
+
+    m_robotDrive.TankDrive(accel, accel);
   }
 
-  void TeleopInit() override {
+  void TeleopInit() override
+  {
     lAccel = 0;
     rAccel = 0;
-     m_encoderLeft.Reset();
-       m_encoderRight.Reset();
+    m_encoderLeft.Reset();
+    m_encoderRight.Reset();
   }
 
   void TeleopPeriodic() override
   {
-     frc::SmartDashboard::PutNumber("Encoder Esquerda", m_encoderLeft.GetDistance());
-     frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
-    lAccel = m_stick.GetY(lHand);
-    rAccel = m_stick.GetX(lHand);
-    if(m_stick.GetXButtonPressed())
+    frc::SmartDashboard::PutNumber("Encoder Esquerda", m_encoderLeft.GetDistance());
+    frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
+   
+    
+    m_rightShooter.SetInverted(1);
+
+    shooter.Set(m_stick.GetTriggerAxis(rHand));
+    intake.Set(m_stick.GetTriggerAxis(lHand)/3.0);
+    m_robotDrive.ArcadeDrive(-m_stick.GetY(lHand),m_stick.GetX(rHand));
+    if(m_stick.GetBumper(lHand))
+      intakeDown.Set(frc::DoubleSolenoid::kForward);
+    else if(m_stick.GetBumper(rHand))
+      intakeDown.Set(frc::DoubleSolenoid::kReverse);
+    else
     {
-     m_encoderLeft.Reset();
-       m_encoderRight.Reset();  
+      intakeDown.Set(frc::DoubleSolenoid::kOff);
     }
+     if(m_stick.GetPOV()==0)
+      target.Set(frc::DoubleSolenoid::kForward);
+    else if(m_stick.GetPOV()==180)
+      target.Set(frc::DoubleSolenoid::kReverse);
+    else
+    {
+      target.Set(frc::DoubleSolenoid::kOff);
+    }
+    
 
-    m_robotDrive.ArcadeDrive(lAccel,rAccel);
-
+   
   }
 
   void TestInit() override {}
@@ -104,7 +172,7 @@ private:
   WPI_VictorSPX m_rearRight{7};
   frc::SpeedControllerGroup m_left{m_frontLeft, m_rearLeft};
   frc::SpeedControllerGroup m_right{m_frontRight, m_rearRight};
-  frc::DifferentialDrive m_robotDrive{m_right,m_left};
+  frc::DifferentialDrive m_robotDrive{m_left, m_right};
 
   frc::GenericHID::JoystickHand lHand = frc::GenericHID::kLeftHand;
   frc::GenericHID::JoystickHand rHand = frc::GenericHID::kRightHand;
@@ -122,12 +190,19 @@ private:
   // 4 - enc B
   // 3 - enc A
   // 2 - enc ABS
-  
+
   frc::Encoder m_encoderLeft{8, 7};
   frc::Encoder m_encoderRight{4, 3};
-
-
-
+  WPI_VictorSPX m_middleShooter{1};
+  WPI_VictorSPX m_leftShooter{2};
+  WPI_VictorSPX m_rightShooter{3};
+  frc::SpeedControllerGroup shooter{m_middleShooter, m_leftShooter, m_rightShooter};
+  rev::CANSparkMax intake{8,rev::CANSparkMaxLowLevel::MotorType::kBrushless};
+  AHRS *ahrs;
+  int autoLoopCounter;
+  frc::Compressor compressor;
+  frc::DoubleSolenoid target{2,3};
+  frc::DoubleSolenoid intakeDown{0,1};
 };
 
 #ifndef RUNNING_FRC_TESTS
