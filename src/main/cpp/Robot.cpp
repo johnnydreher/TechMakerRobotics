@@ -26,7 +26,6 @@
 #include <frc/DoubleSolenoid.h>
 #include "cameraserver/CameraServer.h"
 
-
 const static double kP = 0.03f;
 const static double kI = 0.00f;
 const static double kD = 0.00f;
@@ -37,9 +36,20 @@ const static double kToleranceDegrees = 2.0f;
 class Robot : public frc::TimedRobot
 {
 public:
+  typedef enum AutonomousState
+  {
+    forwarding,
+    lefting,
+    righting,
+    stoped
+  } AutonomousState_t;
   double rAccel = 0, lAccel = 0;
-  double accel = -1;
-
+  double accel = 0;
+  AutonomousState_t state = stoped;
+  double AutonomousDistance = 0;
+  int AutonomousCount = 0;
+  const double largePath = 300.0;
+  const double smallPath = 100.0;
   Robot()
   {
     m_robotDrive.SetExpiration(0.1);
@@ -58,7 +68,6 @@ public:
       const char *p_err_msg = err_msg.c_str();
       frc::DriverStation::ReportError(p_err_msg);
     }
-    compressor.Start();
     target.Set(frc::DoubleSolenoid::kOff);
     intakeDown.Set(frc::DoubleSolenoid::kOff);
     frc::CameraServer::GetInstance()->StartAutomaticCapture();
@@ -67,11 +76,13 @@ public:
 
   void AutonomousInit() override
   {
-    m_timer.Reset();
-    m_timer.Start();
+
+    accel = 0.5;
+    state = forwarding;
     m_robotDrive.TankDrive(accel, accel);
     m_encoderLeft.Reset();
     m_encoderRight.Reset();
+    AutonomousDistance = largePath;
   }
 
   void AutonomousPeriodic() override
@@ -80,84 +91,132 @@ public:
     frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
     frc::SmartDashboard::PutNumber("Aceleração esquerda", lAccel);
     frc::SmartDashboard::PutNumber("Aceleração Direita", rAccel);
-    if (m_encoderLeft.GetDistance() > 590.0 || m_encoderRight.GetDistance() > 590.0)
-    {
+    frc::SmartDashboard::PutNumber("Aceleração", accel);
+    frc::SmartDashboard::PutNumber("Estado", state);
+    frc::SmartDashboard::PutNumber("angulo", ahrs->GetAngle());
+    frc::SmartDashboard::PutNumber("Velocidade X", ahrs->GetVelocityX());
+    frc::SmartDashboard::PutNumber("Velocidade Y", ahrs->GetVelocityY());
+    frc::SmartDashboard::PutNumber("Velocidade Z", ahrs->GetVelocityZ());
+    frc::SmartDashboard::PutNumber("Trajetorias", AutonomousCount);
 
-      m_encoderLeft.Reset();
-      m_encoderRight.Reset();
-      accel = -0.5;
+    if (state == forwarding)
+    {
+      if (m_encoderLeft.GetDistance() > (AutonomousDistance * 0.98) || m_encoderRight.GetDistance() > (AutonomousDistance * 0.98))
+      {
+
+        state = lefting;
+        accel = 0;
+        ahrs->ZeroYaw();
+        if (AutonomousCount < 2)
+          AutonomousCount++;
+        else
+        {
+          state = stoped;
+        }
+      }
+
+      else if (m_encoderLeft.GetDistance() > (AutonomousDistance * 0.9) || m_encoderRight.GetDistance() > (AutonomousDistance * 0.9))
+      {
+        accel = 0.25;
+      }
+
+      else if (m_encoderLeft.GetDistance() > (AutonomousDistance * 0.1) || m_encoderRight.GetDistance() > (AutonomousDistance * 0.1))
+      {
+        accel = 1.0;
+      }
+      m_robotDrive.ArcadeDrive(accel, 0);
     }
-    else if (m_encoderLeft.GetDistance() > 580.0 || m_encoderRight.GetDistance() > 580.0)
+
+    if (state == righting)
+    {
+      if (ahrs->GetAngle() < 75.0)
+        m_robotDrive.TankDrive(0.4,-0.4);
+      else if (ahrs->GetAngle() < 90.0)
+        m_robotDrive.TankDrive(0.35,-0.35);
+
+      else
+      {
+        if (AutonomousCount == 1)
+          AutonomousDistance = smallPath;
+        else
+          AutonomousDistance = largePath;
+        accel = 0.5;
+        state = forwarding;
+        m_robotDrive.TankDrive(accel, accel);
+        m_encoderLeft.Reset();
+        m_encoderRight.Reset();
+      }
+    }
+    if (state == lefting)
+    {
+      if (ahrs->GetAngle() > -75.0)
+        m_robotDrive.TankDrive(-0.4,0.4);
+      else if (ahrs->GetAngle() > -90.0)
+        m_robotDrive.TankDrive(-0.35, 0.35);
+
+      else
+      {
+        if (AutonomousCount == 1)
+          AutonomousDistance = smallPath;
+        else
+          AutonomousDistance = largePath;
+        accel = 0.5;
+        state = forwarding;
+        m_robotDrive.TankDrive(accel, accel);
+        m_encoderLeft.Reset();
+        m_encoderRight.Reset();
+      }
+    }
+    if (state == stoped)
     {
       accel = 0;
-    }
-    else if (m_encoderLeft.GetDistance() > 400.0 || m_encoderRight.GetDistance() > 400.0)
-    {
-      accel = 0.5;
-    }
-    else if (m_encoderLeft.GetDistance() > 50.0 || m_encoderRight.GetDistance() > 50.0)
-    {
-      accel = 1.0;
-    }
 
-    if (m_encoderLeft.GetDistance() < -590.0 || m_encoderRight.GetDistance() < -590.0)
-    {
-      accel = 0;
+      m_robotDrive.ArcadeDrive(0, 0);
     }
-    else if (m_encoderLeft.GetDistance() < -580.0 || m_encoderRight.GetDistance() < -580.0)
-    {
-      accel = 0.25;
-    }
-    else if (m_encoderLeft.GetDistance() < -400.0 || m_encoderRight.GetDistance() < -400.0)
-    {
-      accel = -0.5;
-    }
-    else if (m_encoderLeft.GetDistance() < -50.0 || m_encoderRight.GetDistance() < -50.0)
-    {
-      accel = -1.0;
-    }
-
-    m_robotDrive.TankDrive(accel, accel);
   }
 
-  void TeleopInit() override
+  void
+  TeleopInit() override
   {
     lAccel = 0;
     rAccel = 0;
     m_encoderLeft.Reset();
     m_encoderRight.Reset();
+    compressor.Start();
   }
 
   void TeleopPeriodic() override
   {
     frc::SmartDashboard::PutNumber("Encoder Esquerda", m_encoderLeft.GetDistance());
     frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
-   
-    
+    frc::SmartDashboard::PutNumber("angulo", ahrs->GetAngle());
+    frc::SmartDashboard::PutNumber("Velocidade X", ahrs->GetVelocityX());
+    frc::SmartDashboard::PutNumber("Velocidade Y", ahrs->GetVelocityY());
+    frc::SmartDashboard::PutNumber("Velocidade Z", ahrs->GetVelocityZ());
+
     m_rightShooter.SetInverted(1);
 
     shooter.Set(m_stick.GetTriggerAxis(rHand));
-    intake.Set(m_stick.GetTriggerAxis(lHand)/3.0);
-    m_robotDrive.ArcadeDrive(-m_stick.GetY(lHand),m_stick.GetX(rHand));
-    if(m_stick.GetBumper(lHand))
+    intake.Set(m_stick.GetTriggerAxis(lHand) / 3.0);
+    m_robotDrive.ArcadeDrive(-m_stick.GetY(lHand), m_stick.GetX(rHand));
+    if (m_stick.GetBumper(lHand))
       intakeDown.Set(frc::DoubleSolenoid::kForward);
-    else if(m_stick.GetBumper(rHand))
+    else if (m_stick.GetBumper(rHand))
       intakeDown.Set(frc::DoubleSolenoid::kReverse);
     else
     {
       intakeDown.Set(frc::DoubleSolenoid::kOff);
     }
-     if(m_stick.GetPOV()==0)
-      target.Set(frc::DoubleSolenoid::kForward);
-    else if(m_stick.GetPOV()==180)
+    if (m_stick.GetPOV() == 0)
       target.Set(frc::DoubleSolenoid::kReverse);
+    else if (m_stick.GetPOV() == 180)
+      target.Set(frc::DoubleSolenoid::kForward);
     else
     {
       target.Set(frc::DoubleSolenoid::kOff);
     }
-    
-
-   
+    if (m_stick.GetAButton())
+      ahrs->ZeroYaw();
   }
 
   void TestInit() override {}
@@ -197,12 +256,12 @@ private:
   WPI_VictorSPX m_leftShooter{2};
   WPI_VictorSPX m_rightShooter{3};
   frc::SpeedControllerGroup shooter{m_middleShooter, m_leftShooter, m_rightShooter};
-  rev::CANSparkMax intake{8,rev::CANSparkMaxLowLevel::MotorType::kBrushless};
+  rev::CANSparkMax intake{8, rev::CANSparkMaxLowLevel::MotorType::kBrushless};
   AHRS *ahrs;
   int autoLoopCounter;
   frc::Compressor compressor;
-  frc::DoubleSolenoid target{2,3};
-  frc::DoubleSolenoid intakeDown{0,1};
+  frc::DoubleSolenoid target{2, 3};
+  frc::DoubleSolenoid intakeDown{0, 1};
 };
 
 #ifndef RUNNING_FRC_TESTS
