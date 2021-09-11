@@ -22,6 +22,7 @@
 #include <frc/DoubleSolenoid.h>
 #include "cameraserver/CameraServer.h"
 #include <iostream>
+#include <frc/PowerDistributionPanel.h>
 using namespace std;
 
 const static double kP = 0.03f;
@@ -134,6 +135,19 @@ public:
    
    frc::SmartDashboard::PutNumber("Encoder Esquerda", m_encoderLeft.GetDistance());
    frc::SmartDashboard::PutNumber("Encoder Direita", m_encoderRight.GetDistance());
+    if(m_pdp.GetVoltage()>Tmax)
+    {
+     accel = 0.7;
+    }
+    else if(m_pdp.GetVoltage()<Tmin)
+    {
+    frc::DriverStation::ReportError("Low Voltage");
+    accel = 1;
+    }
+    else
+    {
+      accel = (Tmax - m_pdp.GetVoltage())/1000 + 0.8;
+    }
     if(m_stick.GetStickButtonPressed(lHand))
     {
       if(shooter.Get()==0)
@@ -156,7 +170,40 @@ public:
         intake.Set(0);
     }
     
-    m_robotDrive.ArcadeDrive(-m_stick.GetY(lHand)*0.8,(m_stick.GetX(rHand)*0.65));
+    
+    if(m_stick.GetBButton()){
+      ahrs->ZeroYaw();
+      while(ahrs->GetAngle()<100)
+      {
+         m_robotDrive.ArcadeDrive(0,0.75);
+      }
+      while(ahrs->GetAngle()<175)
+      {
+         m_robotDrive.ArcadeDrive(0,0.3);
+      }
+      m_timer.Reset();
+      m_timer.Start();
+      while(ahrs->GetAngle()<180)
+      {
+        m_robotDrive.ArcadeDrive(0,-0.3);
+        if(m_timer.Get()>0.5)
+        break;
+      }
+      m_robotDrive.ArcadeDrive(0,0);
+    }
+    
+    if(m_stick.GetXButton())
+    {
+          m_robotDrive.ArcadeDrive(1.0,0);
+
+    }
+    else
+        m_robotDrive.ArcadeDrive(-m_stick.GetY(lHand)*accel,(m_stick.GetX(rHand)*(accel-0.2)));
+    
+    if(m_stick.GetBButton())
+    {
+      m_robotDrive.ArcadeDrive(0, 1.0);
+    }
     if(m_stick.GetBumper(lHand))
       intakeDown.Set(frc::DoubleSolenoid::kForward);
     else if(m_stick.GetBumper(rHand))
@@ -218,9 +265,12 @@ private:
   frc::SpeedControllerGroup conveyor{m_middleConveyor, m_middleShooter, intake};
   AHRS *ahrs;
   int autoLoopCounter;
+  const float Tmax = 12.5;
+  const float Tmin = 10.5;
   frc::Compressor compressor;
   frc::DoubleSolenoid target{2,3};
   frc::DoubleSolenoid intakeDown{0,1};
+  frc::PowerDistributionPanel m_pdp;
 };
 
 #ifndef RUNNING_FRC_TESTS
