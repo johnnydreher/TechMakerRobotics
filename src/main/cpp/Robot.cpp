@@ -25,6 +25,8 @@
 #include <frc/Compressor.h>
 #include <frc/DoubleSolenoid.h>
 #include "cameraserver/CameraServer.h"
+#include <frc/PowerDistributionPanel.h>
+#include <frc/PWM.h>
 
 const static double kP = 0.03f;
 const static double kI = 0.00f;
@@ -50,12 +52,18 @@ public:
   int AutonomousCount = 0;
   const double largePath = 300.0;
   const double smallPath = 100.0;
+  frc::PWM ledR{0};
+  frc::PWM ledG{1};
+  frc::PWM ledB{2};
   Robot()
   {
-    m_robotDrive.SetExpiration(0.1);
     m_timer.Start();
     m_encoderLeft.SetDistancePerPulse(48.0 / 2048.0);
     m_encoderRight.SetDistancePerPulse(48.0 / 2048.0);
+    ledR.SetRaw(30000);
+    ledG.SetRaw(30000);
+    ledB.SetRaw(30000);
+    m_conveyorUp.SetInverted(1);
     try
     {
 
@@ -70,8 +78,6 @@ public:
     }
     target.Set(frc::DoubleSolenoid::kOff);
     intakeDown.Set(frc::DoubleSolenoid::kOff);
-    frc::CameraServer::GetInstance()->StartAutomaticCapture();
-    frc::CameraServer::GetInstance()->SetSize(frc::CameraServer::kSize640x480);
   }
 
   void AutonomousInit() override
@@ -99,7 +105,7 @@ public:
     frc::SmartDashboard::PutNumber("Velocidade Z", ahrs->GetVelocityZ());
     frc::SmartDashboard::PutNumber("Trajetorias", AutonomousCount);
 
-    if (state == forwarding)
+    /*if (state == forwarding)
     {
       if (m_encoderLeft.GetDistance() > (AutonomousDistance * 0.98) || m_encoderRight.GetDistance() > (AutonomousDistance * 0.98))
       {
@@ -130,9 +136,9 @@ public:
     if (state == righting)
     {
       if (ahrs->GetAngle() < 75.0)
-        m_robotDrive.TankDrive(0.4,-0.4);
+        m_robotDrive.TankDrive(0.4, -0.4);
       else if (ahrs->GetAngle() < 90.0)
-        m_robotDrive.TankDrive(0.35,-0.35);
+        m_robotDrive.TankDrive(0.35, -0.35);
 
       else
       {
@@ -150,7 +156,7 @@ public:
     if (state == lefting)
     {
       if (ahrs->GetAngle() > -75.0)
-        m_robotDrive.TankDrive(-0.4,0.4);
+        m_robotDrive.TankDrive(-0.4, 0.4);
       else if (ahrs->GetAngle() > -90.0)
         m_robotDrive.TankDrive(-0.35, 0.35);
 
@@ -172,7 +178,7 @@ public:
       accel = 0;
 
       m_robotDrive.ArcadeDrive(0, 0);
-    }
+    }*/
   }
 
   void
@@ -194,29 +200,38 @@ public:
     frc::SmartDashboard::PutNumber("Velocidade Y", ahrs->GetVelocityY());
     frc::SmartDashboard::PutNumber("Velocidade Z", ahrs->GetVelocityZ());
 
-    m_rightShooter.SetInverted(1);
-
-    shooter.Set(m_stick.GetTriggerAxis(rHand));
-    intake.Set(m_stick.GetTriggerAxis(lHand) / 3.0);
     m_robotDrive.ArcadeDrive(-m_stick.GetY(lHand), m_stick.GetX(rHand));
-    if (m_stick.GetBumper(lHand))
-      intakeDown.Set(frc::DoubleSolenoid::kForward);
-    else if (m_stick.GetBumper(rHand))
-      intakeDown.Set(frc::DoubleSolenoid::kReverse);
-    else
+    if (m_stick.GetAButtonPressed())
     {
-      intakeDown.Set(frc::DoubleSolenoid::kOff);
+      if (ledR.GetRaw() > 0)
+      {
+        ledR.SetRaw(0);
+      }
+      else
+      {
+        ledR.SetRaw(30000);
+      }
     }
-    if (m_stick.GetPOV() == 0)
-      target.Set(frc::DoubleSolenoid::kReverse);
-    else if (m_stick.GetPOV() == 180)
-      target.Set(frc::DoubleSolenoid::kForward);
-    else
+    if (m_stick.GetBButtonPressed())
     {
-      target.Set(frc::DoubleSolenoid::kOff);
+      if (ledG.GetRaw() > 0)
+      {
+        ledG.SetRaw(0);
+      }
+      else
+      {
+        ledG.SetRaw(30000);
+      }
     }
-    if (m_stick.GetAButton())
-      ahrs->ZeroYaw();
+    
+
+    if (m_stick.GetXButtonPressed())
+    {
+      if (ledB.GetRaw() > 0)
+        ledB.SetRaw(0);
+      else
+        ledB.SetRaw(30000);
+    }
   }
 
   void TestInit() override {}
@@ -252,16 +267,19 @@ private:
 
   frc::Encoder m_encoderLeft{8, 7};
   frc::Encoder m_encoderRight{4, 3};
-  WPI_VictorSPX m_middleShooter{1};
+  WPI_VictorSPX m_conveyorUp{3};
+  WPI_VictorSPX m_conveyorDown{0};
   WPI_VictorSPX m_leftShooter{2};
-  WPI_VictorSPX m_rightShooter{3};
-  frc::SpeedControllerGroup shooter{m_middleShooter, m_leftShooter, m_rightShooter};
+  WPI_VictorSPX m_rightShooter{1};
   rev::CANSparkMax intake{8, rev::CANSparkMaxLowLevel::MotorType::kBrushless};
+  frc::SpeedControllerGroup shooter{m_leftShooter, m_rightShooter};
+  frc::SpeedControllerGroup conveyor{m_conveyorDown, m_conveyorUp, intake};
   AHRS *ahrs;
   int autoLoopCounter;
   frc::Compressor compressor;
   frc::DoubleSolenoid target{2, 3};
   frc::DoubleSolenoid intakeDown{0, 1};
+  frc::PowerDistributionPanel m_pdp;
 };
 
 #ifndef RUNNING_FRC_TESTS
